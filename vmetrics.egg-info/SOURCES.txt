@@ -1,0 +1,8 @@
+README.md
+setup.py
+vmetrics/__init__.py
+vmetrics/vmetrics.py
+vmetrics.egg-info/PKG-INFO
+vmetrics.egg-info/SOURCES.txt
+vmetrics.egg-info/dependency_links.txt
+vmetrics.egg-info/top_level.txt
