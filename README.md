@@ -3,10 +3,10 @@ This package was written for validating the FALL3D-8.0 benchmark suite with sate
 
 The code was written to test two specific case studies:
 1. The 2011 eruption of Puyehue-Cordon Caulle (Chile). Used for validating ash simulations.
-1. The 2019 eruption of Raikoke (Russia). Used for validating so2 simulation.
+1. The 2019 eruption of Raikoke (Russia). Used for validating SO2 simulation.
 
 # Installation
-To install clone or download this repository to your local disk.
+To install, clone or download this repository to your local disk.
 ```
 clone https://github.com/andyprata/vmetrics.git
 ``` 
