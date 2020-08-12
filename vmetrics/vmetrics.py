@@ -5,24 +5,105 @@ import pandas as pd
 from scipy.ndimage import label
 
 
+def read_satellite_data(path_to_satellite_data, species_flag):
+    """
+    Reads in satellite retrieval file.
+
+    Args:
+        path_to_satellite_data (string): Full path to satellite retrieval netcdf file.
+        species_flag (string): A string indicating which specie to validate. Valid options are 'ash' or 'so2'.
+
+    Returns:
+        col_mass (2d numpy array): Column mass loadings in g/m^2
+        lons (2d numpy array): longitude grid
+        lats (2d numpy array): latitude grid
+        datetime_arr (1d numpy array): datetime object array
+    """
+    rootgrp = Dataset(path_to_satellite_data, 'r', format="NETCDF4")
+    if species_flag == 'ash':
+        col_mass = rootgrp['mass_loading'][:, ::-1, :]
+        lons = rootgrp['longitude'][:, :]
+        lats = rootgrp['latitude'][::-1, :]
+    elif species_flag == 'so2':
+        col_mass = rootgrp['mass_loading'][:, ::-1, 1:]
+        lons = rootgrp['longitude'][:, 1:]
+        lats = rootgrp['latitude'][::-1, 1:]
+    else:
+        raise Exception('Invalid species! Valid options are ash or so2.')
+    datetime_arr = np.array([num2date(dt, units=rootgrp['time'].units, calendar=rootgrp['time'].calendar)
+                         for dt in rootgrp['time'][:]])
+    rootgrp.close()
+    return col_mass, lons, lats, datetime_arr
+
+
+def read_model_data(path_to_model_data, species_flag):
+    """
+    Reads in FALL3D-8.0 output file.
+
+    Args:
+        path_to_model_data (string): Full path to FALL3D netcdf file.
+        species_flag (string): A string indicating which specie to validate. Valid options are 'ash' or 'so2'.
+
+    Returns:
+        col_mass (2d numpy array): Column mass loadings in g/m^2
+        lons (2d numpy array): longitude grid
+        lats (2d numpy array): latitude grid
+        datetime_arr (1d numpy array): datetime object array
+    """
+    rootgrp = Dataset(path_to_model_data, 'r', format="NETCDF4")
+    if species_flag == 'ash':
+        col_mass = rootgrp['tephra_col_mass_pm'][:, 1, :, :]
+    elif species_flag == 'so2':
+        col_mass = rootgrp['SO2_col_mass'][:, :, :]
+    else:
+        raise Exception('Invalid species! Valid options are ash or so2.')
+    lons_1d = rootgrp['lon'][:]
+    lats_1d = rootgrp['lat'][:]
+    datetime_arr = np.array([num2date(dt, units=rootgrp['time'].units,
+                                      calendar=rootgrp['time'].calendar).replace(minute=0, second=0)
+                             for dt in rootgrp['time'][:]])
+    rootgrp.close()
+    lons, lats = np.meshgrid(lons_1d, lats_1d)
+    return col_mass, lons, lats, datetime_arr
+
+
 def haversine(lon1, lat1, lon2, lat2):
     """
-    Calculate the great circle distance between two points
-    on the earth (specified in decimal degrees)
+    Calculates the great circle distance between two points on the earth (specified in decimal degrees).
+
+    Args:
+        lon1 (float): Longitude of first point in decimal degrees.
+        lat1 (float): Latitude of first point in decimal degrees.
+        lon2 (float): Longitude of second point in decimal degrees.
+        lat2 (float): Latitude of second point in decimal degrees.
+
+    Returns:
+        distance (float): Great circle distance in km.
     """
-    # convert decimal degrees to radians
-    deg2rad = np.pi/180.
-    # haversine formula
-    dlon = lon2*deg2rad - lon1*deg2rad
-    dlat = lat2*deg2rad - lat1*deg2rad
-    a = np.sin(dlat/2)**2 + np.cos(lat1*deg2rad) * np.cos(lat2*deg2rad) * np.sin(dlon/2)**2
-    c = 2. * np.arcsin(np.sqrt(a))
-    r = 6378.  # Radius of earth in kilometers. Use 3956 for miles
-    # returns distance in km
-    return c * r
+    # Set constants
+    DEG2RAD = np.pi/180.
+    EARTH_RADIUS = 6378.  # [km]
+    # Apply Haversine formula
+    dlon = lon2*DEG2RAD - lon1*DEG2RAD
+    dlat = lat2*DEG2RAD - lat1*DEG2RAD
+    distance = 2. * np.arcsin(np.sqrt(np.sin(dlat/2)**2 + np.cos(lat1*DEG2RAD) *
+                                      np.cos(lat2*DEG2RAD) * np.sin(dlon/2)**2)) * EARTH_RADIUS
+    return distance
 
 
 def filter_objects(objects, object_num, object_threshold):
+    """
+    Filters set of objects based on a size limit.
+
+    Args:
+        objects (2d int array): An array of objects labelled by integers (e.g. 1, 2, 3 ... object_num)
+        object_num (int): Total number of objects in object array
+        object_threshold (int): Maximum size of object. Object of size less than object_threshold will be filtered out.
+
+    Returns:
+        objects_filtered (2d int array): New object array after filtering.
+        object_num_filtered (int): New total number of objects after filtering.
+    """
     objects_modified = np.copy(objects)
     j = 0
     # 1. Zero-out all small objects
@@ -39,11 +120,15 @@ def filter_objects(objects, object_num, object_threshold):
 
 def calc_fms(A, B, area):
     """
-    Compute Figure of Merit in Space (FMS)
-    :param A: n x m binary array
-    :param B: n x m binary array
-    :param area: n x m array containing the spatial area of each grid-box [m^2]
-    :return: fms: figure of merit in space
+    Computes the Figure of Merit in Space (FMS) validation metric.
+
+    Args:
+        A (2d int array): A binary array of size n x m.
+        B (2d int array): A binary array of size n x m.
+        area (2d float array): A float array of size n x m containing the spatial area of each grid-box [m^2].
+
+    Returns:
+        fms (float): Figure of Merit in Space (valid range from 0 to 1).
     """
     # find where A = B = 1. (i.e. intersection)
     intersect = np.where((A == 1.) & (A == B))
@@ -55,63 +140,47 @@ def calc_fms(A, B, area):
     union = np.where(union_binary == 1.)
     union_area = np.nansum(area[union])
     # compute FMS
-    fms = (intersect_area / union_area) * 100.
+    fms = (intersect_area / union_area)
     return fms
 
-# def compute_fms(path_to_satellite_data, path_to_model_data):
-#     # Calculate Figure of Merit in Space (FMS) for filtered arrays
-#     obs_binary = np.copy(labeled_array_obs)
-#     mod_binary = np.copy(labeled_array_mod)
-#     obs_binary[obs_binary > 0.] = 1.
-#     mod_binary[mod_binary > 0.] = 1.
-#     FMS_filtered = calc_fms(obs_binary, mod_binary, area_2d)
-#     print("FMS = " + str(round(FMS_filtered, 3)) + " %")
-#     # # write FMS data to file
-#     # header_fms = 'yyyymmdd, HHMM, FMS, FMSf'
-#     # zippedlist_fms = list(zip(yyyymmdd_list, HHMM_list, FMS_list, FMSf_list))
-#     # df_fms = pd.DataFrame(zippedlist_fms, columns=['yyyymmdd', 'HHMM', 'FMS', 'FMSf'])
-#     # np.savetxt(output_path + 'puyehue_fms.txt', df_fms.values, fmt=' '.join(['%i %.4i'] + ['%.4f'] * 2),
-#     #            header=header_fms)
-#     return
 
+def compute_validation_metrics(path_to_satellite_data, path_to_model_data, species_flag,
+                               output_path='./output/validation_metrics.txt'):
+    """
+    Computes and write validation metrics (SAL and FMS) to file
 
-def compute_sal(path_to_satellite_data, path_to_model_data, output_path='./sal.txt', write_objects=False):
-    # path_to_satellite_data = '/home/aprata/radtrans/retrievals/case_studies/2011_puyehue/fall3d_validation/puyehue_2011_ash_retrievals_nn.nc'
-    # path_to_model_data = '/home/aprata/radtrans/retrievals/case_studies/2011_puyehue/fall3d_validation/puyehue-2011.data-insertion.nc'
-    # read in model data
-    rootgrp_mod = Dataset(path_to_model_data, 'r', format="NETCDF4")
-    lons_1d = rootgrp_mod['lon'][:]
-    lats_1d = rootgrp_mod['lat'][:]
-    datetime_mod = np.array([num2date(dt, units=rootgrp_mod['time'].units,
-                                      calendar=rootgrp_mod['time'].calendar).replace(minute=0, second=0)
-                             for dt in rootgrp_mod['time'][:]])
-    col_mass_mod = rootgrp_mod['tephra_col_mass_pm'][:, 1, :, :]
-    rootgrp_mod.close()
+    Args:
+        path_to_satellite_data: Full path (including filename) to satellite retrieval netcdf file.
+        path_to_model_data: Full path (inlcuding filename) to FALL3D netcdf file.
+        species_flag (string): A string indicating which specie to validate. Valid options are 'ash' or 'so2'.
+        output_path (string): Output path for validation metric text file
 
-    # set up grid definition based on model lat/lons
-    lons_grid, lats_grid = np.meshgrid(lons_1d, lats_1d)
-
-    # read in satellite data
-    rootgrp_sat = Dataset(path_to_satellite_data, 'r', format="NETCDF4")
-    col_mass_sat = rootgrp_sat['mass_loading'][:, ::-1, :]
-    datetime_sat = np.array([num2date(dt, units='seconds since 2011-06-05 00:00 UTC', calendar='proleptic_gregorian')
-                             for dt in rootgrp_sat['time'][:]])
-    lons_sat = rootgrp_sat['longitude'][:, :]
-    lats_sat = rootgrp_sat['latitude'][::-1, :]
-    rootgrp_sat.close()
-
-    start_time = datetime(2011, 6, 5, 15)
-    end_time = datetime(2011, 6, 9)
-
+    Returns:
+        None. A file will be written to the output_path.
+    """
+    # Read in satellite data
+    col_mass_sat, lons_sat, lats_sat, datetime_sat = read_satellite_data(path_to_satellite_data, species_flag)
+    # Read in model data
+    col_mass_mod, lons_mod, lats_mod, datetime_mod = read_model_data(path_to_model_data, species_flag)
+    if species_flag == 'ash':
+        start_time = datetime(2011, 6, 5, 15)
+        end_time = datetime(2011, 6, 9)
+    elif species_flag == 'so2':
+        start_time = datetime(2019, 6, 22, 18)
+        end_time = datetime(2019, 6, 24, 18)
+    else:
+        raise Exception('Invalid species! Valid options are ash or so2.')
     dt_minutes = 60.
     time_diff = end_time - start_time
     time_minutes = time_diff.total_seconds()/60.
     num = int(time_minutes/dt_minutes) + 1
 
-    SAL_list = []
+    # Setup empty lists for writing out data
     S_list = []
     A_list = []
     L_list = []
+    SAL_list = []
+    FMS_list = []
     datetime_list = []
     yyyymmdd_list = []
     HHMM_list = []
@@ -125,7 +194,7 @@ def compute_sal(path_to_satellite_data, path_to_model_data, output_path='./sal.t
 
     for i in range(num):
         current_time = start_time + timedelta(minutes=i * dt_minutes)
-        #print(current_time.strftime('%Y-%m-%d %H%M UTC'))
+
         # Select time step to compare satellite to model
         qq_sat = np.where(datetime_sat == current_time)[0][0]
         qq_mod = np.where(datetime_mod == current_time)[0][0]
@@ -133,8 +202,12 @@ def compute_sal(path_to_satellite_data, path_to_model_data, output_path='./sal.t
         cm_mod = col_mass_mod[qq_mod, :, :]
 
         # Count total number of objects in observation and model data
-        mass_loading_threshold = 0.2  # mass loading threshold (g/m^2)
-
+        if species_flag == 'ash':
+            mass_loading_threshold = 0.2  # mass loading threshold for ash (g/m^2)
+        elif species_flag == 'so2':
+            mass_loading_threshold = 5.  # mass loading threshold for so2 (DU)
+        else:
+            raise Exception('Invalid species! Valid options are ash or so2.')
         cm_sat[cm_sat < mass_loading_threshold] = 0.
         cm_mod[cm_mod < mass_loading_threshold] = 0.
 
@@ -147,8 +220,6 @@ def compute_sal(path_to_satellite_data, path_to_model_data, output_path='./sal.t
         # Count objects
         labeled_array_obs, num_objects_obs = label(cm_sat_binary)
         labeled_array_mod, num_objects_mod = label(cm_mod_binary)
-        #print('Number of objects (obs) = ' + str(num_objects_obs))
-        #print('Number of objects (mod) = ' + str(num_objects_mod))
 
         # Filter out small objects (i.e. remove objects smaller than size 16)
         labeled_array_obs, num_objects_obs = filter_objects(labeled_array_obs, num_objects_obs, 16)
@@ -156,20 +227,19 @@ def compute_sal(path_to_satellite_data, path_to_model_data, output_path='./sal.t
 
         # Compute area of each lat/lon grid box (note this assumes spherical Earth)
         Re = 6.378e6  # [m]
-        dlon_grid = 0.1  # [deg]
-        dlat_grid = 0.1  # [deg]
-        dlon = dlon_grid * np.pi / 180.  # [rad]
-        dlat = dlat_grid * np.pi / 180.  # [rad]
-        area_2d = (Re ** 2.) * np.cos(lats_grid * np.pi / 180.) * dlon * dlat  # [m^2]
+        dlon_deg = 0.1  # [deg]
+        dlat_deg = 0.1  # [deg]
+        dlon_rad = dlon_deg * np.pi / 180.  # [rad]
+        dlat_rad = dlat_deg * np.pi / 180.  # [rad]
+        area_2d = (Re ** 2.) * np.cos(lats_mod * np.pi / 180.) * dlon_rad * dlat_rad  # [m^2]
+
+        # Calculate Figure of Merit in Space (FMS)
+        FMS = calc_fms(cm_sat_binary, cm_mod_binary, area_2d)
 
         # Compute SAL
         # 1. Convert g/m^2 to area-integrated ash mass [g] in each column
         R_xy_obs = cm_sat.copy() * area_2d
         R_xy_mod = cm_mod.copy() * area_2d
-
-        # Check that total mass of ash is reasonable:
-        #print('Total mass ash for obs [Tg] = ', str(round(np.nansum(R_xy_obs)/1e12, 3)))
-        #print('Total mass ash for mod [Tg] = ', str(round(np.nansum(R_xy_mod)/1e12, 3)))
 
         # 2. Calculate total mass of each object and normalise by maximum total mass for each object.
         # Do for observation fields
@@ -202,21 +272,19 @@ def compute_sal(path_to_satellite_data, path_to_model_data, output_path='./sal.t
 
         # Compute L1 and L2 (L1+L2=L)
         # Find centre of mass of the satellite observations
-        C_obs_x = np.nansum(R_xy_obs * lons_grid) / np.nansum(R_xy_obs)
-        C_obs_y = np.nansum(R_xy_obs * lats_grid) / np.nansum(R_xy_obs)
+        C_obs_x = np.nansum(R_xy_obs * lons_sat) / np.nansum(R_xy_obs)
+        C_obs_y = np.nansum(R_xy_obs * lats_sat) / np.nansum(R_xy_obs)
 
         # Find centre of mass of the model simulations
-        C_mod_x = np.nansum(R_xy_mod * lons_grid) / np.nansum(R_xy_mod)
-        C_mod_y = np.nansum(R_xy_mod * lats_grid) / np.nansum(R_xy_mod)
-
-        #print('Center of mass lon, lat (obs) = ' + str(C_obs_x) + ', ' + str(C_obs_y))
-        #print('Center of mass lon, lat (mod) = ' + str(C_mod_x) + ', ' + str(C_mod_y))
+        C_mod_x = np.nansum(R_xy_mod * lons_mod) / np.nansum(R_xy_mod)
+        C_mod_y = np.nansum(R_xy_mod * lats_mod) / np.nansum(R_xy_mod)
 
         # Find distance betweeen centre of masses
         C_dist = haversine(C_obs_x, C_obs_y, C_mod_x, C_mod_y)
 
         # Find maximum distance within domain
-        D_max = haversine(lons_grid[0, 0], lats_grid[0, 0], lons_grid[-1, -1], lats_grid[-1, -1])
+        D_max = haversine(lons_mod[0, 0], lats_mod[0, 0], lons_mod[-1, -1], lats_mod[-1, -1])
+
         # Compute L1
         L1 = C_dist / D_max
 
@@ -227,26 +295,25 @@ def compute_sal(path_to_satellite_data, path_to_model_data, output_path='./sal.t
         C_obs_n_y_arr = np.zeros(num_objects_obs)
         for i in range(num_objects_obs):
             C_obs_n_x = np.nansum(R_xy_obs[labeled_array_obs == float(i + 1)] *
-                                  lons_grid[labeled_array_obs == float(i + 1)]) / \
+                                  lons_mod[labeled_array_obs == float(i + 1)]) / \
                         np.nansum(R_xy_obs[labeled_array_obs == float(i + 1)])
             C_obs_n_y = np.nansum(R_xy_obs[labeled_array_obs == float(i + 1)] *
-                                  lats_grid[labeled_array_obs == float(i + 1)]) / \
+                                  lats_mod[labeled_array_obs == float(i + 1)]) / \
                         np.nansum(R_xy_obs[labeled_array_obs == float(i + 1)])
             C_obs_n_x_arr[i] = C_obs_n_x
             C_obs_n_y_arr[i] = C_obs_n_y
             # Calculate distance between centre of mass and centre of mass of each object
             C_n_obs_arr[i] = haversine(C_obs_x, C_obs_y, C_obs_n_x, C_obs_n_y)
-            #print(i, C_obs_n_x, C_obs_n_y)
 
         C_mod_n_x_arr = np.zeros(num_objects_mod)
         C_mod_n_y_arr = np.zeros(num_objects_mod)
         for i in range(num_objects_mod):
             C_mod_n_x = np.nansum(R_xy_mod[labeled_array_mod == float(i + 1)] *
-                                  lons_grid[labeled_array_mod == float(i + 1)]) / \
+                                  lons_mod[labeled_array_mod == float(i + 1)]) / \
                         np.nansum(R_xy_mod[labeled_array_mod == float(i + 1)])
 
             C_mod_n_y = np.nansum(R_xy_mod[labeled_array_mod == float(i + 1)] *
-                                  lats_grid[labeled_array_mod == float(i + 1)]) / \
+                                  lats_mod[labeled_array_mod == float(i + 1)]) / \
                         np.nansum(R_xy_mod[labeled_array_mod == float(i + 1)])
             C_mod_n_x_arr[i] = C_mod_n_x
             C_mod_n_y_arr[i] = C_mod_n_y
@@ -265,46 +332,13 @@ def compute_sal(path_to_satellite_data, path_to_model_data, output_path='./sal.t
 
         # Compute SAL
         SAL = np.abs(S) + np.abs(A) + L
-        #print('S = ' + str(S))
-        #print('A = ' + str(A))
-        #print('L = ' + str(L))
-        #print('SAL = ' + str(SAL))
 
-        # write observation objects to file
-        if write_objects:
-            # write header for observation fields
-            header_obs = 'Author=Andrew Prata (andrew.prata@bsc.es)\n' + \
-                         'datetime=' + current_time.strftime('%Y%m%d%H%M') + '\n' + \
-                         'S=' + str(round(S, 3)) + '\n' + \
-                         'A=' + str(round(A, 3)) + '\n' + \
-                         'L=' + str(round(L, 3)) + '\n' + \
-                         'SAL=' + str(round(SAL, 3)) + '\n' + \
-                         'N_OBS=' + str(round(num_objects_obs, 3)) + '\n' + \
-                         'clon_OBS=' + str(round(C_obs_x, 3)) + '\n' + \
-                         'clat_OBS=' + str(round(C_obs_y, 3)) + '\n' + \
-                         'clon, clat'
-
-            # write header for model fields
-            header_mod = 'Author=Andrew Prata (andrew.prata@bsc.es)\n' + \
-                         'datetime=' + current_time.strftime('%Y%m%d%H%M') + '\n' + \
-                         'S=' + str(round(S, 3)) + '\n' + \
-                         'A=' + str(round(A, 3)) + '\n' + \
-                         'L=' + str(round(L, 3)) + '\n' + \
-                         'SAL=' + str(round(SAL, 3)) + '\n' + \
-                         'N_MOD=' + str(round(num_objects_mod, 3)) + '\n' + \
-                         'clon_MOD=' + str(round(C_mod_x, 3)) + '\n' + \
-                         'clat_MOD=' + str(round(C_mod_y, 3)) + '\n' + \
-                         'clon, clat'
-            ziplist_obs = list(zip(list(C_obs_n_x_arr), list(C_obs_n_y_arr)))
-            ziplist_mod = list(zip(list(C_mod_n_x_arr), list(C_mod_n_y_arr)))
-            df_obs = pd.DataFrame(ziplist_obs)
-            df_mod = pd.DataFrame(ziplist_mod)
-            np.savetxt(output_path + current_time.strftime('%Y%m%d%H%M') + '_obs.txt', df_obs.values, fmt=' '.join(['%.4f'] * 2), header=header_obs)
-            np.savetxt(output_path + current_time.strftime('%Y%m%d%H%M') + '_mod.txt', df_mod.values, fmt=' '.join(['%.4f'] * 2), header=header_mod)
+        # Append data to lists
         S_list.append(S)
         A_list.append(A)
         L_list.append(L)
         SAL_list.append(SAL)
+        FMS_list.append(FMS)
         hours_list.append(i)
         datetime_list.append(current_time)
         yyyymmdd_list.append(int(current_time.strftime('%Y%m%d')))
@@ -315,16 +349,19 @@ def compute_sal(path_to_satellite_data, path_to_model_data, output_path='./sal.t
         center_of_mass_lat_obs_list.append(C_obs_y)
         center_of_mass_lon_mod_list.append(C_mod_x)
         center_of_mass_lat_mod_list.append(C_mod_y)
-    # write SAL data to file
-    header = 'yyyymmdd, HHMM, S, A, L, SAL, num_objects_obs, num_objects_mod, ' \
+
+    # Write data to file
+    print("Writing validation metrics to file...")
+    header = 'yyyymmdd, HHMM, S, A, L, SAL, FMS, num_objects_obs, num_objects_mod, ' \
              'clon_obs, clat_obs, ' \
              'clon_mod, clat_mod'
-    zippedlist = list(zip(yyyymmdd_list, HHMM_list, S_list, A_list, L_list, SAL_list,
+    zippedlist = list(zip(yyyymmdd_list, HHMM_list, S_list, A_list, L_list, SAL_list, FMS_list,
                           object_num_obs_list, object_num_mod_list,
                           center_of_mass_lon_obs_list, center_of_mass_lat_obs_list,
                           center_of_mass_lon_mod_list, center_of_mass_lat_mod_list))
-    df = pd.DataFrame(zippedlist, columns=['yyyymmdd', 'HHMM', 'S', 'A', 'L', 'SAL', 'num_objects_obs', 'num_objects_mod',
+    df = pd.DataFrame(zippedlist, columns=['yyyymmdd', 'HHMM', 'S', 'A', 'L', 'SAL', 'FMS',
+                                           'num_objects_obs', 'num_objects_mod',
                                            'clon_obs', 'clat_obs', 'clon_mod', 'clat_mod'])
-    np.savetxt(output_path, df.values, fmt=' '.join(['%i %.4i'] + ['%.4f'] * 4 + ['%i %i'] + ['%.4f'] * 4), header=header)
-    return SAL_list
-
+    np.savetxt(output_path, df.values, fmt=' '.join(['%i %.4i'] + ['%.4f'] * 5 + ['%i %i'] + ['%.4f'] * 4), header=header)
+    print("Done.")
+    return
