@@ -36,5 +36,5 @@ diff ./output/validation_metrics_ash.txt ./output/validation_metrics_ash_data_in
 diff ./output/validation_metrics_so2.txt ./output/validation_metrics_so2_data_insertion.txt
 ```
 
-where the `_gmd.txt` files are the data that were used in the GMD paper and are included in this repo in the `output` folder. Expected result is no difference. If you have any issues with the installation or running of this package please contact Andrew Prata (andrew.prata@bsc.es) or Arnau Folch (arnau.folch@bsc.es).
+where the `_data_insertion.txt` files are the data insertion results presented in the GMD paper. These files are included in this repo for testing and can be found under `output` folder. Validation results for the no data insertion runs (i.e. `_no_data_insertion.txt`) are also included. Expected result is no difference. If you have any issues with the installation or running of this package please contact Andrew Prata (andrew.prata@bsc.es) or Arnau Folch (arnau.folch@bsc.es).
 
