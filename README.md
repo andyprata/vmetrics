@@ -3,7 +3,7 @@ This package was written for validating the FALL3D-8.0 benchmark suite with sate
 
 The code was written to test two specific case studies:
 1. The 2011 eruption of Puyehue-Cordon Caulle (Chile). Used for validating ash simulations.
-1. The 2019 eruption of Raikoke (Russia). Used for validating SO2 simulation.
+1. The 2019 eruption of Raikoke (Russia). Used for validating SO2 simulations.
 
 # Installation
 To install, clone or download this repository to your local disk.
@@ -23,7 +23,7 @@ Once installed you can validate FALL3D ash simulations with
 ```
 python validate.py ./data/puyehue-2011.sat.nc <model_output.nc> ash
 ```
-And validate the FALL3D so2 simulations with
+And validate the FALL3D SO2 simulations with
 ```
 python validate.py ./data/raikoke-2019.sat.nc <model_output.nc> so2
 ```
