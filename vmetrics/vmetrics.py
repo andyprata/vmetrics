@@ -10,14 +10,14 @@ def convert_mass_points_to_corner_points(col_mass, lons, lats):
     Converts mass points grid to corner point grid.
 
     Args:
-        col_mass (3d numpy array): 3 dimensional column mass array on mass points grid of size l x m x n.
-        lons (2d numpy array): 2 dimensional regular grid longitude array of size m x n.
-        lats (2d numpy array): 2 dimensional regular grid latitude array of size m x n.
+        col_mass (3d numpy array): 3 dimensional column mass array on mass points grid of size L x M x N.
+        lons (2d numpy array): 2 dimensional regular grid longitude array of size M x N.
+        lats (2d numpy array): 2 dimensional regular grid latitude array of size M x N.
 
     Returns:
-        col_mass (2d numpy array): 3 dimensional column mass array on corner points grid of size l x m+1 x n+1.
-        lons (2d numpy array): 2 dimensional regular grid longitude array of size m+1 x n+1.
-        lats (2d numpy array): 2 dimensional regular grid latitude array of size m+1 x n+1.
+        col_mass (2d numpy array): 3 dimensional column mass array on corner points grid of size L x M+1 x N+1.
+        lons (2d numpy array): 2 dimensional regular grid longitude array of size M+1 x N+1.
+        lats (2d numpy array): 2 dimensional regular grid latitude array of size M+1 x N+1.
     """
     # Get longitude/latitude grid resolutions
     dlon = np.round(lons[0, 1] - lons[0, 0], 2)
@@ -176,9 +176,9 @@ def calc_fms(A, B, area):
     Computes the Figure of Merit in Space (FMS) validation metric.
 
     Args:
-        A (2d int array): A binary array of size m x n.
-        B (2d int array): A binary array of size m x n.
-        area (2d float array): A float array of size m x n containing the spatial area of each grid-box [m^2].
+        A (2d int array): A binary array of size M x N.
+        B (2d int array): A binary array of size M x N.
+        area (2d float array): A float array of size M x N containing the spatial area of each grid-box [m^2].
 
     Returns:
         fms (float): Figure of Merit in Space (valid range from 0 to 1).
