@@ -23,7 +23,7 @@ def convert_mass_points_to_corner_points(col_mass, lons, lats):
     dlon = np.round(lons[0, 1] - lons[0, 0], 2)
     dlat = np.round(lats[1, 0] - lats[0, 0], 2)
 
-    # Extend lonmin/latmin start by half a grid point
+    # Extend lonmin/latmin by half a grid point
     lonmin = np.round(lons[0, 0] - dlon/2., 2)
     latmin = np.round(lats[0, 0] - dlat/2., 2)
 
