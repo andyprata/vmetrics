@@ -18,8 +18,8 @@ pip install -e .
 
 Pip should automatically find and install all the dependancies. The installation has been tested for Python 3.6 using a conda environment.
 
-# Running the validation script
-Once installed you can validate FALL3D with the validate.py script, which takes 4 arguments.
+# Running the validation scripts
+Once installed you can validate FALL3D by running the following validation scripts.
 
 To validate the Puyehue-Cordon Caulle 2011 ash simulations do
 ```
