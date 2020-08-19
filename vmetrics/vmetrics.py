@@ -1,25 +1,73 @@
 from netCDF4 import Dataset, num2date
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import timedelta
 import pandas as pd
-from scipy.ndimage import label
+from scipy.ndimage import label, convolve
 
 
-def read_satellite_data(path_to_satellite_data, species_flag):
+def convert_mass_points_to_corner_points(col_mass, lons, lats):
+    """
+    Converts mass points grid to corner point grid.
+
+    Args:
+        col_mass (3d numpy array): 3 dimensional column mass array on mass points grid of size L x M x N.
+        lons (2d numpy array): 2 dimensional regular grid longitude array of size M x N.
+        lats (2d numpy array): 2 dimensional regular grid latitude array of size M x N.
+
+    Returns:
+        col_mass (2d numpy array): 3 dimensional column mass array on corner points grid of size L x M+1 x N+1.
+        lons (2d numpy array): 2 dimensional regular grid longitude array of size M+1 x N+1.
+        lats (2d numpy array): 2 dimensional regular grid longitude array of size M+1 x N+1.
+    """
+    # Get longitude/latitude grid resolutions
+    dlon = np.round(lons[0, 1] - lons[0, 0], 2)
+    dlat = np.round(lats[1, 0] - lats[0, 0], 2)
+
+    # Extend lonmin/latmin start by half a grid point
+    lonmin = np.round(lons[0, 0] - dlon/2., 2)
+    latmin = np.round(lats[0, 0] - dlat/2., 2)
+
+    # Extend lonmax/latmin by half a grid point
+    lonmax = np.round(lons[-1, -1] + dlon/2., 2)
+    latmax = np.round(lats[-1, -1] + dlat/2., 2)
+
+    # Generate new longitude/latitude grids in 1d
+    lons_1d = np.arange(lonmin, lonmax + dlon, dlon)
+    lats_1d = np.arange(latmin, latmax + dlat, dlat)
+
+    # Meshgrids to get new long/lat grids as corner points
+    lons_crnr, lats_crnr = np.meshgrid(lons_1d, lats_1d)
+
+    # Create array for column mass at corner points
+    col_mass_crnr = np.zeros((col_mass.shape[0], col_mass.shape[1]+1, col_mass.shape[2]+1))
+
+    # Define 2 x 2 averagomg kernal matrix
+    k = (1. / 4.) * np.ones((2, 2))
+
+    # For each time-step extend mass point grid by computing the average for 2 x 2 grid-boxes
+    # Note: This requires adding a buffer row and column of zeros on the left and top of the domain.
+    for i in range(col_mass.shape[0]):
+        col_mass_crnr[i, 1:, 1:] = col_mass[i, :, :]
+        col_mass_crnr[i, :, :] = convolve(col_mass_crnr[i, :, :], k)
+    return col_mass_crnr, lons_crnr, lats_crnr
+
+
+def read_satellite_data(path, fn, species_flag):
     """
     Reads in satellite retrieval file.
 
     Args:
-        path_to_satellite_data (string): Full path to satellite retrieval netcdf file.
+        path (string): Path to satellite retrieval netcdf file.
+        fn (string): Filename of satellite retrieval file. Must be netcdf.
         species_flag (string): A string indicating which specie to validate. Valid options are 'ash' or 'so2'.
 
     Returns:
-        col_mass (2d numpy array): Column mass loadings in g/m^2
-        lons (2d numpy array): longitude grid
-        lats (2d numpy array): latitude grid
-        datetime_arr (1d numpy array): datetime object array
+        col_mass (3d numpy array): Column mass loadings in g/m^2.
+        lons (2d numpy array): longitude grid.
+        lats (2d numpy array): latitude grid.
+        datetime_arr (1d numpy array): datetime object array.
     """
-    rootgrp = Dataset(path_to_satellite_data, 'r', format="NETCDF4")
+    rootgrp = Dataset(path + fn, 'r', format="NETCDF4")
     if species_flag == 'ash':
         col_mass = rootgrp['mass_loading'][:, ::-1, :]
         lons = rootgrp['longitude'][:, :]
@@ -30,27 +78,31 @@ def read_satellite_data(path_to_satellite_data, species_flag):
         lats = rootgrp['latitude'][::-1, 1:]
     else:
         raise Exception('Invalid species! Valid options are ash or so2.')
+    # Create datetime array from netcdf file
     datetime_arr = np.array([num2date(dt, units=rootgrp['time'].units, calendar=rootgrp['time'].calendar)
-                         for dt in rootgrp['time'][:]])
+                             for dt in rootgrp['time'][:]])
     rootgrp.close()
-    return col_mass, lons, lats, datetime_arr
+
+    # Convert mass points to corner points so that satellite and model data are on the same grid for validation metrics.
+    col_mass_crnr, lons_crnr, lats_crnr = convert_mass_points_to_corner_points(col_mass, lons, lats)
+
+    return col_mass_crnr, lons_crnr, lats_crnr, datetime_arr
 
 
-def read_model_data(path_to_model_data, species_flag):
+def read_model_data(path, fn, species_flag):
     """
     Reads in FALL3D-8.0 output file.
 
     Args:
-        path_to_model_data (string): Full path to FALL3D netcdf file.
-        species_flag (string): A string indicating which specie to validate. Valid options are 'ash' or 'so2'.
-
+        path (string): Path to FALL3D output netcdf file.
+        fn (string): Filename of FALL3D output file. Must be netcdf.
     Returns:
-        col_mass (2d numpy array): Column mass loadings in g/m^2
-        lons (2d numpy array): longitude grid
-        lats (2d numpy array): latitude grid
-        datetime_arr (1d numpy array): datetime object array
+        col_mass (3d numpy array): Column mass loadings in g/m^2.
+        lons (2d numpy array): longitude grid.
+        lats (2d numpy array): latitude grid.
+        datetime_arr (datetime object): datetime object containing model time steps.
     """
-    rootgrp = Dataset(path_to_model_data, 'r', format="NETCDF4")
+    rootgrp = Dataset(path + fn, 'r', format="NETCDF4")
     if species_flag == 'ash':
         col_mass = rootgrp['tephra_col_mass_pm'][:, 1, :, :]
     elif species_flag == 'so2':
@@ -96,8 +148,8 @@ def filter_objects(objects, object_num, object_threshold):
     Filters set of objects based on a size limit.
 
     Args:
-        objects (2d int array): An array of objects labelled by integers (e.g. 1, 2, 3 ... object_num)
-        object_num (int): Total number of objects in object array
+        objects (2d int array): An array of objects labelled by integers (e.g. 1, 2, 3 ... object_num).
+        object_num (int): Total number of objects in object array.
         object_threshold (int): Maximum size of object. Object of size less than object_threshold will be filtered out.
 
     Returns:
@@ -144,32 +196,30 @@ def calc_fms(A, B, area):
     return fms
 
 
-def compute_validation_metrics(path_to_satellite_data, path_to_model_data, species_flag,
-                               output_path='./output/validation_metrics.txt'):
+def compute_validation_metrics(col_mass_sat, lons_sat, lats_sat, datetime_sat,
+                               col_mass_mod, lons_mod, lats_mod, datetime_mod,
+                               start_time, end_time, species_flag, output_path):
     """
     Computes and write validation metrics (SAL and FMS) to file
 
     Args:
-        path_to_satellite_data: Full path (including filename) to satellite retrieval netcdf file.
-        path_to_model_data: Full path (inlcuding filename) to FALL3D netcdf file.
+        col_mass_sat (2d numpy array): Satellite column mass loadings in g/m^2.
+        lons_sat (2d numpy array): Satellite longitude grid.
+        lats_sat (2d numpy array): Satellite latitude grid.
+        datetime_sat (datetime object): Datetime object containing satellite time steps.
+        col_mass_mod (2d numpy array): Model column mass loadings in g/m^2.
+        lons_mod (2d numpy array): Model longitude grid.
+        lats_mod (2d numpy array): Model latitude grid.
+        datetime_mod (datetime object): Datetime object containing model time steps.
+        start_time (datetime object): Datetime object specifying the start time of the validation period.
+        end_time (datetime object): Datetime object specifying the end time of the validation period.
         species_flag (string): A string indicating which specie to validate. Valid options are 'ash' or 'so2'.
-        output_path (string): Output path for validation metric text file
+        output_path (string): Output path for validation metric text file.
 
     Returns:
         None. A file will be written to the output_path.
     """
-    # Read in satellite data
-    col_mass_sat, lons_sat, lats_sat, datetime_sat = read_satellite_data(path_to_satellite_data, species_flag)
-    # Read in model data
-    col_mass_mod, lons_mod, lats_mod, datetime_mod = read_model_data(path_to_model_data, species_flag)
-    if species_flag == 'ash':
-        start_time = datetime(2011, 6, 5, 15)
-        end_time = datetime(2011, 6, 9)
-    elif species_flag == 'so2':
-        start_time = datetime(2019, 6, 22, 18)
-        end_time = datetime(2019, 6, 24, 18)
-    else:
-        raise Exception('Invalid species! Valid options are ash or so2.')
+
     dt_minutes = 60.
     time_diff = end_time - start_time
     time_minutes = time_diff.total_seconds()/60.
