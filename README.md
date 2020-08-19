@@ -38,5 +38,5 @@ diff ./expected_output/validation_metrics_puyehue.txt ./user_output/validation_m
 diff ./expected_output/validation_metrics_raikoke.txt ./user_output/validation_metrics_raikoke.txt
 ```
 
-These verification files are included in this repository for testing and can be found under `expected_output` folder. Expected result is no difference. If you have any issues with the installation or running of this package please contact Andrew Prata (andrew.prata@bsc.es) or Arnau Folch (arnau.folch@bsc.es).
+These verification files are included in this repository for testing and can be found under the `expected_output` folder. Expected result is no difference. If you have any issues with the installation or running of this package please contact Andrew Prata (andrew.prata@bsc.es) or Arnau Folch (arnau.folch@bsc.es).
 

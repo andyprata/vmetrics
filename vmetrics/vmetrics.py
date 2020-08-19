@@ -41,7 +41,7 @@ def convert_mass_points_to_corner_points(col_mass, lons, lats):
     # Create array for column mass at corner points
     col_mass_crnr = np.zeros((col_mass.shape[0], col_mass.shape[1]+1, col_mass.shape[2]+1))
 
-    # Define 2 x 2 averagomg kernal matrix
+    # Define 2 x 2 averaging kernal matrix
     k = (1. / 4.) * np.ones((2, 2))
 
     # For each time-step extend mass point grid by computing the average for 2 x 2 grid-boxes
