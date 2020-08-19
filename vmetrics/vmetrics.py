@@ -17,7 +17,7 @@ def convert_mass_points_to_corner_points(col_mass, lons, lats):
     Returns:
         col_mass (2d numpy array): 3 dimensional column mass array on corner points grid of size L x M+1 x N+1.
         lons (2d numpy array): 2 dimensional regular grid longitude array of size M+1 x N+1.
-        lats (2d numpy array): 2 dimensional regular grid longitude array of size M+1 x N+1.
+        lats (2d numpy array): 2 dimensional regular grid latitude array of size M+1 x N+1.
     """
     # Get longitude/latitude grid resolutions
     dlon = np.round(lons[0, 1] - lons[0, 0], 2)
