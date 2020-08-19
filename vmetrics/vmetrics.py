@@ -157,15 +157,16 @@ def filter_objects(objects, object_num, object_threshold):
         object_num_filtered (int): New total number of objects after filtering.
     """
     objects_modified = np.copy(objects)
-    j = 0
+
     # 1. Zero-out all small objects
     for i in range(object_num):
         if len(objects[objects == float(i + 1)]) < object_threshold:
             objects_modified[objects == float(i + 1)] = 0
-            j += 1
+
     # 2. Convert to binary
     objects_modified[objects_modified > 0] = 1
-    # 3. Relabel objects
+
+    # 3. Re-label objects
     objects_filtered, object_num_filtered = label(objects_modified)
     return objects_filtered, object_num_filtered
 
